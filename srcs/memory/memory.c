@@ -130,7 +130,7 @@ void paging_init()
 
             memset((void*)pt_phys, 0, PAGE_SIZE); 
 
-            page_directory[pd_index] = (pt_phys & ~0xFFF) | (PAGE_PRESENT|PAGE_RW);
+            page_directory[pd_index] = pt_phys | (PAGE_PRESENT|PAGE_RW);
         }
 
         page_table_t* table = (page_table_t*)(page_directory[pd_index] & ~0xFFF);
@@ -367,7 +367,7 @@ static void map_new_page(uintptr_t vaddr, bool is_user)
         if (!pt_phys) kernel_panic("Out of frames for PDE!\n");
 
         memset((void*)pt_phys, 0, PAGE_SIZE);
-        page_directory[pd_index] = (pt_phys & ~0xFFF) | pde_flags;
+        page_directory[pd_index] = pt_phys | pde_flags;
     }
 
     page_table_t* pt = (page_table_t*)(page_directory[pd_index] & ~0xFFF);
