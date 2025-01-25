@@ -1,18 +1,36 @@
+OUTPUT_FORMAT(elf32-i386)
+OUTPUT_ARCH(i386)
 ENTRY(start)
 
-SECTIONS {
-    . = 0x100000;
-    
-    .multiboot : { *(.multiboot) }
+SECTIONS
+{
+	. = 1M;
 
-    .text : { *(.text) }
+	.bootstrap.data ALIGN(4K) : {
+		*(.multiboot)
+		*(.bootstrap.data)
+	}
 
-    .data ALIGN (0x1000) : { *(.data) }
+	.bootstrap.bss ALIGN(4k) : {
+		*(.tables)
+		*(.bootstrap.bss)
+	}
 
-    .bss : {
-        *(.bss)
-        *(COMMON)
-        ebss = .;
-        endkernel = .;
-    }
+	.text BLOCK(4K) : ALIGN(4K)
+	{
+		*(.text)
+	}
+
+	.data BLOCK(4K) : ALIGN(4K) 
+	{ 
+		*(.data)
+	}
+
+	.bss BLOCK(4K) : ALIGN(4K)
+	{
+		*(.bss)
+	}
+
+	. = ALIGN(4K);
+	PROVIDE(endkernel = .);
 }

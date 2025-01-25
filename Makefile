@@ -20,7 +20,7 @@ vpath %.c $(SRC_DIR) $(SRC_DIR)/utils $(SRC_DIR)/display $(SRC_DIR)/keyboard $(S
 			$(SRC_DIR)/idt $(SRC_DIR)/kshell $(SRC_DIR)/io $(SRC_DIR)/timers $(SRC_DIR)/memory \
 			$(SRC_DIR)/syscalls
 
-vpath %.asm $(BOOT_DIR) $(SRC_DIR)/keyboard $(SRC_DIR)/gdt $(SRC_DIR)/utils
+vpath %.asm $(BOOT_DIR) $(SRC_DIR)/keyboard $(SRC_DIR)/gdt $(SRC_DIR)/utils $(SRC_DIR)/memory
 
 C_SOURCES = kernel.c strcmp.c strlen.c printf.c putc.c puts.c keyboard.c \
 			idt.c itoa.c gdt.c put_hex.c kdump.c kshell.c memset.c strtol.c \
@@ -29,7 +29,7 @@ C_SOURCES = kernel.c strcmp.c strlen.c printf.c putc.c puts.c keyboard.c \
 			interrupts.c signals.c syscalls.c get_line.c layouts.c
 
 ASM_SOURCES = boot.asm handler.asm gdt_asm.asm dump_registers.asm \
-			  clear_registers.asm
+			  clear_registers.asm memory_asm.asm
 
 SRC = $(C_SOURCES) $(ASM_SOURCES)
 
@@ -74,7 +74,7 @@ fclean: clean
 re: fclean all
 
 run:
-	qemu-system-i386 -kernel $(BIN_NAME) #-m 4096
+	qemu-system-i386 -kernel $(BIN_NAME) -m 4096
 
 run_grub:
 	qemu-system-i386 -cdrom $(NAME)

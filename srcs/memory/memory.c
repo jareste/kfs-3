@@ -51,9 +51,9 @@ typedef struct block_header {
 /* Same than the upper one but for vmalloc */
 typedef struct vblock_header {
     size_t size;
-    struct vblock_header* next;
     int free;
-} vblock_header_t;
+    struct vblock_header* next;
+} __attribute__((aligned(8))) vblock_header_t;
 
 typedef uint32_t page_directory_t[PAGE_DIRECTORY_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
 typedef uint32_t page_table_t[PAGE_TABLE_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
@@ -111,6 +111,9 @@ static command_t commands[] = {
 /*                                                                            */
 /*############################################################################*/
 
+extern void enablePaging();
+extern void loadPageDirectory(unsigned int*);
+
 void paging_init() {
     pmm_init();
     memset(page_directory, 0, sizeof(page_directory));
@@ -131,8 +134,8 @@ void paging_init() {
         (*table)[pt_index] = (addr & ~0xFFF) | (PAGE_PRESENT | PAGE_RW);
     }
 
-    asm volatile("mov %0, %%cr3" :: "r"(page_directory));
-    // Enable paging...
+    loadPageDirectory((unsigned int*)page_directory);
+    enablePaging();
 }
 
 void heap_init()
@@ -435,21 +438,17 @@ void* vbrk(void* addr, bool is_user)
 }
 
 size_t vsize(void* ptr);
-void* vmalloc(size_t size_, bool is_user)
-{
+void* vmalloc(size_t size_, bool is_user) {
     size_t size = ALIGN_8(size_);
     vblock_header_t* new_block;
     vblock_header_t* prev = NULL;
     vblock_header_t* block = vblock_list;
 
-    while (block)
-    {
-        if (block->free && block->size >= size)
-        {
+    while (block) {
+        if (block->free && block->size >= size) {
             block->free = 0;
 
-            if (block->size >= size + sizeof(vblock_header_t))
-            {
+            if (block->size >= size + sizeof(vblock_header_t)) {
                 new_block = (vblock_header_t*)((char*)block + sizeof(vblock_header_t) + size);
                 new_block->size = block->size - size - sizeof(vblock_header_t);
                 new_block->free = 1;
@@ -459,7 +458,7 @@ void* vmalloc(size_t size_, bool is_user)
                 block->next = new_block;
             }
 
-            printf("2block: %p, vblock_list: %p, size: %zu\n", block, vblock_list, block->size);
+            printf("Allocated block: %p, size: %zu\n", block, block->size);
             return (void*)((char*)block + sizeof(vblock_header_t));
         }
 
@@ -467,49 +466,34 @@ void* vmalloc(size_t size_, bool is_user)
         block = block->next;
     }
 
-    uintptr_t old_end = vheap_end;
-    uintptr_t new_end = old_end + size + sizeof(vblock_header_t);
+    uintptr_t old_end = (uintptr_t)vheap_end;
+    uintptr_t new_end = (uintptr_t)vheap_end + size + sizeof(vblock_header_t);
 
-    if (new_end + MB(1) > VMALLOC_END)
-    {
+    if (new_end + MB(1) > VMALLOC_END) {
         puts_color("vmalloc: out of range!\n", RED);
         return NULL;
     }
 
-    if (vbrk((void*)new_end, is_user) == (void*)-1)
-    {
+    if (vbrk((void*)new_end, is_user) == (void*)-1) {
         puts_color("vmalloc: vbrk failed\n", RED);
         return NULL;
     }
 
     new_block = (vblock_header_t*)old_end;
-
-    // Add guards
-    uint32_t guard_before = 0xDEADBEEF;
-    new_block->size = 3;
-    uint32_t guard_after = 0xDEADBEEF;
-
-    if (guard_before != 0xDEADBEEF || guard_after != 0xDEADBEEF) {
-        puts_color("Memory corruption detected!\n", RED);
-        kernel_panic("Memory corruption detected!");
-    }
-
-    new_block->free = 0;
+    new_block->size = size;
     new_block->next = NULL;
+    new_block->free = 0;
 
+    printf("New block created at %p with size %zu\n", new_block, new_block->size);
     if (prev)
         prev->next = new_block;
     else
         vblock_list = new_block;
 
-    // Debugging: Dump memory around new_block
-    printf("new_block_size: %zu, size: %zu\n", new_block->size, size);
-    printf("new_block address: %p\n", new_block);
-    printf("Memory around new_block:\n");
-    kdump((void*)((uintptr_t)new_block - 32), 64); // Dump 32 bytes before and 32 bytes after
-    printf("new_block_size: %zu, size: %zu\n", new_block->size, size);
-
-    return (void*)((char*)new_block + sizeof(vblock_header_t));
+    void* allocated_mem = (char*)new_block + sizeof(vblock_header_t);
+    printf("vblock_list: %p, %z\n", vblock_list, vblock_list->size);
+    printf("Allocated memory at %p\n", allocated_mem);
+    return allocated_mem;
 }
 
 void vfree(void* ptr)
@@ -553,8 +537,11 @@ void vfree(void* ptr)
 
 size_t vsize(void* ptr)
 {
-    if (!ptr) return 0;
-
+    if (!ptr)
+    {
+        puts_color("vsize: ptr is NULL\n", RED);
+        return 0;
+    }
     // if (!ptr) return 0;
 
     vblock_header_t* block = (vblock_header_t*)((char*)ptr - sizeof(vblock_header_t));
@@ -813,6 +800,7 @@ static void test_kmalloc()
             return;
         }
         memset(vm2, 'A', size);
+        printf("Allocated km: %p, size: %z\n", vm, ksize(vm));
         if (memcmp(vm, vm2, size) != 0)
         {
             set_putchar_color(RED);
@@ -846,6 +834,18 @@ static void test_kmalloc()
     kfree(vm1);
 }
 
+void test_vmalloc_minimal() {
+    void* vm1 = vmalloc(MB(1), false);
+    if (!vm1) {
+        puts_color("vmalloc: failed to allocate 1 MB\n", RED);
+        return;
+    }
+    printf("%d\n", sizeof(vblock_header_t));
+    printf("Allocated vm1: %p, size: %z\n", vm1, vsize(vm1));
+    memset(vm1, 'A', MB(1));
+    vfree(vm1);
+}
+
 static void test_vmalloc()
 {
     size_t size;
@@ -853,11 +853,13 @@ static void test_vmalloc()
     void* vm1;
     void* vm2;
     int i;
+    bool is_user = true;
 
     for (i = 0; i < 500; i++)
     {
-        size = MB(1);
-        vm = vmalloc(size, false);
+        size = 50;
+        vm = vmalloc(size, is_user);
+        printf("vblock_header_t: %z\n", vblock_list->size);
         if (!vm)
         {
             set_putchar_color(RED);
@@ -866,7 +868,7 @@ static void test_vmalloc()
             return;
         }
         printf("Allocated vm: %p, size: %z\n", vm, vsize(vm));
-        vm2 = vmalloc(size, false);
+        vm2 = vmalloc(size, is_user);
         if (!vm2)
         {
             set_putchar_color(RED);
@@ -892,9 +894,9 @@ static void test_vmalloc()
         vfree(vm2);
     }
 
-    size = MB(12);
+    size = 4080;
     printf("Allocating %z bytes with vmalloc\n", size);
-    vm1 = vmalloc(size, true);
+    vm1 = vmalloc(size, is_user);
     if (!vm1)
     {
         set_putchar_color(RED);
