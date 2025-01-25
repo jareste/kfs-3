@@ -24,31 +24,19 @@ static inline bool is_frame_used(uint32_t frame_number) {
  *   - All frames default to used
  *   - Mark only a certain region as free, or parse BIOS map to free them properly
  */
-void pmm_init()
-{
-    /* Mark everything used by default */
-    for (uint32_t f = 0; f < (0x100000 / PAGE_SIZE); f++)
-    {
+void pmm_init() {
+    // Mark all frames as used by default
+    for (uint32_t f = 0; f < MAX_FRAMES; f++) {
         set_frame_used(f);
     }
 
-    /* Initialize the rest as free
-    */
-    for (uint32_t f = (0x100000 / PAGE_SIZE); f < (MB(64) / PAGE_SIZE); f++)
-    {
+    // Free frames outside the identity-mapped region (assume 64MB RAM)
+    uint32_t identity_end_frame = MB(16) / PAGE_SIZE; // 4096 frames (16MB)
+    uint32_t end_frame = MB(128) / PAGE_SIZE; // 16384 frames (64MB)
+    for (uint32_t f = identity_end_frame; f < end_frame; f++) {
         set_frame_free(f);
     }
-
-    /* TODO:
-     * Maybe I must parse BIOS memory map to free all the regions that are free
-     * and mark the used regions as used. So for now it is ok but not correct.
-     */
-    for (uint32_t f = 0x100000 / PAGE_SIZE; f < 0x120000 / PAGE_SIZE; f++)
-    {
-        set_frame_used(f);
-    }
 }
-
 /**
  * allocate_frame:
  *   Finds the first free bit in the bitmap, sets it to used,
