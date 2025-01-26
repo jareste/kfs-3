@@ -6,12 +6,6 @@ dd 0x1BADB002              ; Multiboot magic number
 dd 0                       ; Flags (set to 0 for now)
 dd -(0x1BADB002 + 0)       ; Checksum (magic + flags + checksum = 0)
 
-section .tables nobits alloc noexec write align=4096
-page_directory_first_entry:
-	resb 4096
-page_table_first_entry:
-	resb 4096
-
 section .text
 start:
     cli                     ; Disable interrupts

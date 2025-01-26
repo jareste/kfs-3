@@ -22,7 +22,7 @@ extern uint32_t endkernel;
 #define HEAP_SIZE_  0x100000  /* 1 MB heap size */
 #define ALIGN_4K(x)  (((x) + 0xFFF) & ~0xFFF) /* 4 KB alignment */
 #define ALIGN_8(x) (((x) + 0x7) & ~0x7) /* 8-byte alignment */
-#define MAX_HEAP_SIZE (20 * 1024 * 1024) /* Allow up to 64MB */
+#define MAX_HEAP_SIZE (8 * 1024 * 1024) /* Allow up to 64MB */
 
 #define PAGE_PRESENT  0x1
 #define PAGE_RW       0x2
@@ -34,7 +34,8 @@ extern uint32_t endkernel;
  * kernel heap or PDE[0] identity region.
  */
 // #define VMALLOC_START 0xC1000000
-#define VMALLOC_END   0xC3000000  // 64 MB
+// #define VMALLOC_END   0xC3000000  // 64 MB
+#define VMALLOC_END (VMALLOC_START + MB(8))
 
 #define KERNEL_PDE_FLAGS  (PAGE_PRESENT | PAGE_RW)
 #define KERNEL_PTE_FLAGS  (PAGE_PRESENT | PAGE_RW)
@@ -119,7 +120,7 @@ void paging_init() {
     memset(page_directory, 0, sizeof(page_directory));
 
     // Map only the first 1MB for identity mapping
-    const uint32_t IDENTITY_LIMIT = MB(1);
+    const uint32_t IDENTITY_LIMIT = MB(4);
     for (uintptr_t addr = 0; addr < IDENTITY_LIMIT; addr += PAGE_SIZE) {
         uint32_t pd_index = addr >> 22;
         uint32_t pt_index = (addr >> 12) & 0x3FF;
@@ -138,9 +139,45 @@ void paging_init() {
     enablePaging();
 }
 
+void* vbrk(void* addr, bool is_user);
+void* kbrk(void* addr);
 void heap_init()
 {
     heap_end = (void*)ALIGN_4K((uintptr_t)HEAP_START);
+    uintptr_t old_end = (uintptr_t)heap_end;
+    uintptr_t new_end = old_end + MB(8);
+
+    printf("Heap start: %p, Heap end: %p\n", HEAP_START, HEAP_START + HEAP_SIZE);
+    if (kbrk((void*)new_end) == (void*)-1)
+    {
+        puts_color("heap_init: Failed to initialize heap!\n", RED);
+        return;
+    }
+
+    block_header_t* block = (block_header_t*)old_end;
+    block->size = new_end - old_end - sizeof(block_header_t);
+    block->free = 1;
+    block->next = NULL;
+
+    free_list = block;
+
+    uintptr_t old_vheap_end = (uintptr_t)vheap_end;
+    uintptr_t new_vheap_end = old_vheap_end + MB(8);
+
+    printf("Vmalloc start: %p, Vmalloc end: %p\n", VMALLOC_START, VMALLOC_END);
+    if (vbrk((void*)new_vheap_end, true) == (void*)-1)
+    {
+        puts_color("heap_init: Failed to initialize vmalloc!\n", RED);
+        return;
+    }
+
+    vblock_header_t* vblock = (vblock_header_t*)old_vheap_end;
+    vblock->size = new_vheap_end - old_vheap_end - sizeof(vblock_header_t);
+    vblock->free = 1;
+    vblock->next = NULL;
+
+    vblock_list = vblock;
+    
     install_all_cmds(commands, MEMORY);
 }
 
@@ -191,11 +228,11 @@ void heap_init()
 
 void* kbrk(void* addr)
 {
-    if ((uintptr_t)addr > HEAP_START + MAX_HEAP_SIZE)
-    {
-        puts_color("WARNING: Heap exceeds maximum limit!\n", RED);
-        return (void*)-1;
-    }
+    // if ((uintptr_t)addr > HEAP_START + MAX_HEAP_SIZE)
+    // {
+    //     puts_color("WARNING: Heap exceeds maximum limit!\n", RED);
+    //     return (void*)-1;
+    // }
 
     uint32_t new_heap_end = ALIGN_4K((uintptr_t)addr);
     uint32_t current_heap_end = ALIGN_4K((uintptr_t)heap_end);
@@ -412,11 +449,11 @@ static void unmap_page(uintptr_t vaddr)
 void* vbrk(void* addr, bool is_user)
 {
     uintptr_t new_end = (uintptr_t)addr;
-    if (new_end < VMALLOC_START || new_end > VMALLOC_END)
-    {
-        puts_color("vbrk: out of vmalloc region!\n", RED);
-        return (void*)-1;
-    }
+    // if (new_end < VMALLOC_START || new_end > VMALLOC_END)
+    // {
+    //     puts_color("vbrk: out of vmalloc region!\n", RED);
+    //     return (void*)-1;
+    // }
 
     if (new_end > vheap_end)
     {
